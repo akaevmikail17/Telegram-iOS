@@ -455,11 +455,12 @@ public final class EventsController: TelegramBaseController {
         emptyView.isHidden = true
         root.addSubview(emptyView)
 
-        // Search bar — always visible
+        // Search bar — lives in tableHeaderView, hidden by default (pull-down to reveal)
         searchBar.placeholder = "Поиск событий"
         searchBar.searchBarStyle = .minimal
         searchBar.delegate = self
-        root.addSubview(searchBar)
+        searchBar.frame = CGRect(x: 0, y: 0, width: 320, height: 52)
+        tableView.tableHeaderView = searchBar
 
         refreshMonthLabel()
         updateEventsList()
@@ -491,19 +492,18 @@ public final class EventsController: TelegramBaseController {
             navBottom = (layout.statusBarHeight ?? 20) + 44
         }
 
-        // Search bar — always pinned below nav bar
         let searchBarH: CGFloat = 52
-        searchBar.frame = CGRect(x: 0, y: navBottom, width: w, height: searchBarH)
+        let isFirstLayout = validLayout == nil
 
         let tableTop: CGFloat
         if isSearching {
-            // Hide calendar components during search
+            // Searching: calendar hidden, table expands to fill from nav bar
             monthHeaderView.isHidden = true
             weekdayRow.isHidden = true
             collectionView.isHidden = true
             divider.isHidden = true
             dateHeaderLabel.isHidden = true
-            tableTop = searchBar.frame.maxY
+            tableTop = navBottom
         } else {
             monthHeaderView.isHidden = false
             weekdayRow.isHidden = false
@@ -511,9 +511,9 @@ public final class EventsController: TelegramBaseController {
             divider.isHidden = false
             dateHeaderLabel.isHidden = false
 
-            // Month header
+            // Month header starts directly below nav bar
             let headerH: CGFloat = 44
-            monthHeaderView.frame = CGRect(x: 0, y: searchBar.frame.maxY, width: w, height: headerH)
+            monthHeaderView.frame = CGRect(x: 0, y: navBottom, width: w, height: headerH)
             prevButton.frame  = CGRect(x: 4,       y: 0, width: 48, height: headerH)
             nextButton.frame  = CGRect(x: w - 52,  y: 0, width: 48, height: headerH)
             monthLabel.frame  = CGRect(x: 56,      y: 0, width: w - 112, height: headerH)
@@ -534,7 +534,7 @@ public final class EventsController: TelegramBaseController {
             // Divider
             divider.frame = CGRect(x: 0, y: collectionView.frame.maxY + 4, width: w, height: 0.5)
 
-            // Date header label
+            // Date header label directly below divider (search bar is now in tableHeaderView)
             let dateHeaderH: CGFloat = 36
             dateHeaderLabel.frame = CGRect(x: 20, y: divider.frame.maxY,
                                            width: w - 40, height: dateHeaderH)
@@ -545,6 +545,15 @@ public final class EventsController: TelegramBaseController {
         let tableH = layout.size.height - tableTop - bottomInset
         tableView.frame = CGRect(x: 0, y: tableTop, width: w, height: tableH)
         emptyView.frame = tableView.frame
+
+        // Keep search bar header width in sync
+        searchBar.frame = CGRect(x: 0, y: 0, width: w, height: searchBarH)
+        tableView.tableHeaderView = searchBar
+
+        // On first layout or when not searching: scroll past the header to hide it
+        if isFirstLayout || (!isSearching && tableView.contentOffset.y == 0) {
+            tableView.setContentOffset(CGPoint(x: 0, y: searchBarH), animated: false)
+        }
     }
 
     // MARK: Calendar helpers
@@ -793,10 +802,14 @@ extension EventsController: UISearchBarDelegate {
         searchText = ""
         updateEventsList()
         if let layout = validLayout { applyLayout(layout) }
+        // Scroll to hide the search bar header again
+        tableView.setContentOffset(CGPoint(x: 0, y: 52), animated: true)
     }
 
     public func searchBarTextDidBeginEditing(_ searchBar: UISearchBar) {
         searchBar.setShowsCancelButton(true, animated: true)
+        // Scroll to show search bar at top of table
+        tableView.setContentOffset(CGPoint(x: 0, y: 0), animated: true)
     }
 
     public func searchBarTextDidEndEditing(_ searchBar: UISearchBar) {
