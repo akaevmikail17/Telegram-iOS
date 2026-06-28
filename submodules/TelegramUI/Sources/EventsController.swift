@@ -7,6 +7,7 @@ import SwiftSignalKit
 import TelegramPresentationData
 import AccountContext
 import TelegramBaseController
+import UserNotifications
 
 // MARK: - Shared storage keys
 
@@ -26,6 +27,38 @@ public struct TGEvent: Codable {
     public let location: String?
     public var chatId: Int64?
     public var chatIsGroup: Bool?   // nil = personal, true = group, false = DM
+    public var reminderMinutes: Int? // nil = no reminder
+    public var description: String?
+    public var creatorId: Int64?    // nil = unknown (legacy events; treated as owned by current user)
+    public var locationLatitude: Double?
+    public var locationLongitude: Double?
+}
+
+// MARK: - Local notifications
+
+func scheduleEventNotification(for event: TGEvent) {
+    guard let minutes = event.reminderMinutes else { return }
+    let fireDate = event.startDate.addingTimeInterval(-Double(minutes) * 60)
+    guard fireDate > Date() else { return }
+
+    let content = UNMutableNotificationContent()
+    content.title = event.title
+    let tf = DateFormatter()
+    tf.timeStyle = .short
+    tf.dateStyle = .none
+    var body = tf.string(from: event.startDate)
+    if let loc = event.location, !loc.isEmpty { body += " · \(loc)" }
+    content.body = body
+    content.sound = .default
+
+    let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
+    let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+    let request = UNNotificationRequest(identifier: "tgevent-\(event.id.uuidString)", content: content, trigger: trigger)
+    UNUserNotificationCenter.current().add(request)
+}
+
+func cancelEventNotification(for eventId: UUID) {
+    UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["tgevent-\(eventId.uuidString)"])
 }
 
 // MARK: - Mock data
@@ -754,6 +787,7 @@ extension EventsController: UITableViewDataSource, UITableViewDelegate {
         let action = UIContextualAction(style: .destructive, title: "Удалить") { [weak self] _, _, done in
             guard let self else { done(false); return }
             let event = self.displayedEvents[ip.section]
+            cancelEventNotification(for: event.id)
             self.allEvents.removeAll { $0.id == event.id }
             self.saveEvents()
             self.displayedEvents.remove(at: ip.section)

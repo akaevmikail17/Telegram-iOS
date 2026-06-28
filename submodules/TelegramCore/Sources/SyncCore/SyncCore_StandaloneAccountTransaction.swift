@@ -129,7 +129,14 @@ public let telegramPostboxSeedConfiguration: SeedConfiguration = {
                     break
                 }
             }
-            
+            var previousTGEvent: TGEventAttribute?
+            for attribute in previous {
+                if let attribute = attribute as? TGEventAttribute {
+                    previousTGEvent = attribute
+                    break
+                }
+            }
+
             if let audioTranscription = audioTranscription {
                 var found = false
                 for i in 0 ..< updated.count {
@@ -153,6 +160,18 @@ public let telegramPostboxSeedConfiguration: SeedConfiguration = {
                 }
                 if !found {
                     updated.append(previousDerivedData)
+                }
+            }
+            if let previousTGEvent {
+                var found = false
+                for i in 0 ..< updated.count {
+                    if let _ = updated[i] as? TGEventAttribute {
+                        found = true
+                        break
+                    }
+                }
+                if !found {
+                    updated.append(previousTGEvent)
                 }
             }
         },

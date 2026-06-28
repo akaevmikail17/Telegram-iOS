@@ -342,6 +342,10 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Telegram хочет добавить встречи в ваш Календарь.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Telegram хочет добавить встречи в ваш Календарь.</string>
 	<key>UIViewEdgeAntialiasing</key>
 	<false/>
 	<key>UIViewGroupOpacity</key>

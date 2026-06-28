@@ -1606,6 +1606,12 @@ plist_fragment(
         <key>NSAllowsArbitraryLoads</key>
         <true/>
     </dict>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Telegram хочет добавить встречи в ваш Календарь.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Telegram хочет добавить встречи в ваш Календарь.</string>
+    <key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+    <string>Telegram хочет добавить встречи в ваш Календарь.</string>
     <key>NSCameraUsageDescription</key>
     <string>We need this so that you can take and share photos and videos.</string>
     <key>NSContactsUsageDescription</key>

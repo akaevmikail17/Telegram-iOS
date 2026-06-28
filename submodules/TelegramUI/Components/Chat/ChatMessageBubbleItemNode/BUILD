@@ -66,6 +66,7 @@ swift_library(
         "//submodules/TelegramUI/Components/Chat/ChatMessageCommentFooterContentNode",
         "//submodules/TelegramUI/Components/Chat/ChatMessageActionBubbleContentNode",
         "//submodules/TelegramUI/Components/Chat/ChatMessageContactBubbleContentNode",
+        "//submodules/TelegramUI/Components/Chat/ChatMessageEventBubbleContentNode",
         "//submodules/TelegramUI/Components/Chat/ChatMessageEventLogPreviousDescriptionContentNode",
         "//submodules/TelegramUI/Components/Chat/ChatMessageEventLogPreviousLinkContentNode",
         "//submodules/TelegramUI/Components/Chat/ChatMessageEventLogPreviousMessageContentNode",

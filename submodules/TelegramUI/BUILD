@@ -343,6 +343,7 @@ swift_library(
         "//submodules/TelegramUI/Components/PremiumGiftAttachmentScreen",
         "//submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode",
         "//submodules/TelegramUI/Components/Chat/ChatMessageBubbleContentNode",
+        "//submodules/TelegramUI/Components/Chat/ChatMessageEventBubbleContentNode",
         "//submodules/TelegramUI/Components/Chat/ChatHistoryEntry",
         "//submodules/TelegramUI/Components/Chat/ChatMessageItemCommon",
         "//submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode",

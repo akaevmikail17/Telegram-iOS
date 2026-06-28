@@ -295,6 +295,8 @@ private func filterMessageAttributesForOutgoingMessage(_ attributes: [MessageAtt
             return true
         case _ as SuggestedPostMessageAttribute:
             return true
+        case _ as TGEventAttribute:
+            return true
         default:
             return false
         }
