@@ -2362,12 +2362,9 @@ extension ChatControllerImpl {
         var eventWithChat = event
         eventWithChat.chatId = chatId
         eventWithChat.chatIsGroup = false
-        var stored = (try? JSONDecoder().decode([TGEvent].self,
-            from: UserDefaults.standard.data(forKey: TGEventStorage.eventsKey) ?? Data())) ?? []
+        var stored = TGEventPersistence.loadEvents()
         stored = stored.map { $0.id == event.id ? eventWithChat : $0 }
-        if let data = try? JSONEncoder().encode(stored) {
-            UserDefaults.standard.set(data, forKey: TGEventStorage.eventsKey)
-        }
+        TGEventPersistence.saveEvents(stored)
 
     }
 
@@ -2403,12 +2400,9 @@ extension ChatControllerImpl {
         var eventWithChat = event
         eventWithChat.chatId = chatId
         eventWithChat.chatIsGroup = true
-        var stored = (try? JSONDecoder().decode([TGEvent].self,
-            from: UserDefaults.standard.data(forKey: TGEventStorage.eventsKey) ?? Data())) ?? []
+        var stored = TGEventPersistence.loadEvents()
         stored = stored.map { $0.id == event.id ? eventWithChat : $0 }
-        if let data = try? JSONEncoder().encode(stored) {
-            UserDefaults.standard.set(data, forKey: TGEventStorage.eventsKey)
-        }
+        TGEventPersistence.saveEvents(stored)
 
     }
 }

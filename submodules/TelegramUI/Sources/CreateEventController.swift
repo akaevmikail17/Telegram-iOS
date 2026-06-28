@@ -349,16 +349,13 @@ final class CreateEventController: UIViewController {
             event.creatorId = context.account.peerId.toInt64()
         }
 
-        var stored = (try? JSONDecoder().decode([TGEvent].self,
-            from: UserDefaults.standard.data(forKey: TGEventStorage.eventsKey) ?? Data())) ?? []
+        var stored = TGEventPersistence.loadEvents()
         if editingEvent != nil {
             stored = stored.map { $0.id == event.id ? event : $0 }
         } else {
             stored.append(event)
         }
-        if let data = try? JSONEncoder().encode(stored) {
-            UserDefaults.standard.set(data, forKey: TGEventStorage.eventsKey)
-        }
+        TGEventPersistence.saveEvents(stored)
 
         // Notify chat bubbles to refresh (covers both direct-edit and EventCardNavigator → Изменить paths)
         NotificationCenter.default.post(
@@ -407,22 +404,14 @@ final class CreateEventController: UIViewController {
             preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Отменить мероприятие", style: .destructive) { [weak self] _ in
             guard let self else { return }
-            var stored = loadStoredEventsLocal()
+            var stored = TGEventPersistence.loadEvents()
             stored.removeAll { $0.id == event.id }
-            if let data = try? JSONEncoder().encode(stored) {
-                UserDefaults.standard.set(data, forKey: TGEventStorage.eventsKey)
-            }
+            TGEventPersistence.saveEvents(stored)
             cancelEventNotification(for: event.id)
             self.dismiss(animated: true)
         })
         alert.addAction(UIAlertAction(title: "Назад", style: .cancel))
         present(alert, animated: true)
-    }
-
-    private func loadStoredEventsLocal() -> [TGEvent] {
-        guard let data = UserDefaults.standard.data(forKey: TGEventStorage.eventsKey),
-              let events = try? JSONDecoder().decode([TGEvent].self, from: data) else { return [] }
-        return events
     }
 
     private func showReminderPicker() {

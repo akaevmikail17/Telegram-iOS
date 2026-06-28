@@ -6,51 +6,13 @@ import SwiftSignalKit
 import Postbox
 import TelegramCore
 
-// MARK: - Vote models and storage
+// MARK: - Vote models
 
 struct TGVoteEntry: Codable {
     let userId: Int64
     let displayName: String
     let vote: String
     let date: Date
-}
-
-private let votesV2Key = "tg_event_votes_v2"
-
-private func loadVotes() -> [String: String] {
-    guard let data = UserDefaults.standard.data(forKey: TGEventStorage.votesKey),
-          let dict = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
-    return dict
-}
-
-private func saveVotes(_ dict: [String: String]) {
-    if let data = try? JSONEncoder().encode(dict) {
-        UserDefaults.standard.set(data, forKey: TGEventStorage.votesKey)
-    }
-}
-
-private func loadVotesV2() -> [String: [TGVoteEntry]] {
-    guard let data = UserDefaults.standard.data(forKey: votesV2Key),
-          let dict = try? JSONDecoder().decode([String: [TGVoteEntry]].self, from: data) else { return [:] }
-    return dict
-}
-
-private func saveVotesV2(_ dict: [String: [TGVoteEntry]]) {
-    if let data = try? JSONEncoder().encode(dict) {
-        UserDefaults.standard.set(data, forKey: votesV2Key)
-    }
-}
-
-private func loadStoredEvents() -> [TGEvent] {
-    guard let data = UserDefaults.standard.data(forKey: TGEventStorage.eventsKey),
-          let events = try? JSONDecoder().decode([TGEvent].self, from: data) else { return [] }
-    return events
-}
-
-private func saveStoredEvents(_ events: [TGEvent]) {
-    if let data = try? JSONEncoder().encode(events) {
-        UserDefaults.standard.set(data, forKey: TGEventStorage.eventsKey)
-    }
 }
 
 // MARK: - Initials avatar
@@ -375,7 +337,7 @@ public final class EventCardNavigatorController: UIViewController {
     }
 
     private func reload() {
-        let all = loadStoredEvents()
+        let all = TGEventPersistence.loadEvents()
         var sorted = all.filter { $0.chatId == chatId }.sorted { $0.startDate > $1.startDate }
         if let targetId = initialEventId,
            let idx = sorted.firstIndex(where: { $0.id.uuidString == targetId }) {
@@ -423,7 +385,7 @@ public final class EventCardNavigatorController: UIViewController {
 
     private func refreshGoingButton() {
         guard let event = currentEvent else { return }
-        let myVote = loadVotes()[event.id.uuidString]
+        let myVote = TGEventPersistence.loadVotesV1()[event.id.uuidString]
         switch myVote {
         case "yes":
             goingButton.setTitle("Пойду  ∨", for: .normal)
@@ -452,13 +414,13 @@ public final class EventCardNavigatorController: UIViewController {
 
     private var goingEntries: [TGVoteEntry] {
         guard let event = currentEvent else { return [] }
-        return (loadVotesV2()[event.id.uuidString] ?? [])
+        return (TGEventPersistence.loadVotesV2()[event.id.uuidString] ?? [])
             .filter { $0.vote == "yes" }.sorted { $0.date < $1.date }
     }
 
     private var notRespondedNames: [String] {
         guard let event = currentEvent else { return [] }
-        let allEntries = loadVotesV2()[event.id.uuidString] ?? []
+        let allEntries = TGEventPersistence.loadVotesV2()[event.id.uuidString] ?? []
         let respondedNames = Set(allEntries.map { $0.displayName.lowercased().trimmingCharacters(in: .whitespaces) })
         let currentUserVoted = allEntries.contains { $0.userId == currentUserId }
         let currentNameNorm = currentUserName.lowercased().trimmingCharacters(in: .whitespaces)
@@ -523,7 +485,7 @@ public final class EventCardNavigatorController: UIViewController {
 
     @objc private func goingTapped() {
         guard let event = currentEvent else { return }
-        let myVote = loadVotes()[event.id.uuidString]
+        let myVote = TGEventPersistence.loadVotesV1()[event.id.uuidString]
 
         let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
         let goAction = UIAlertAction(title: "Пойду", style: .default) { [weak self] _ in
@@ -544,12 +506,12 @@ public final class EventCardNavigatorController: UIViewController {
 
     private func castVote(_ answer: String, for event: TGEvent) {
         let key = event.id.uuidString
-        var votes = loadVotes()
+        var votes = TGEventPersistence.loadVotesV1()
         let prev = votes[key]
         votes[key] = (prev == answer) ? nil : answer
-        saveVotes(votes)
+        TGEventPersistence.saveVotesV1(votes)
 
-        var votesV2 = loadVotesV2()
+        var votesV2 = TGEventPersistence.loadVotesV2()
         var entries = votesV2[key] ?? []
         entries.removeAll { $0.userId == currentUserId }
         if prev != answer {
@@ -558,7 +520,7 @@ public final class EventCardNavigatorController: UIViewController {
                 vote: answer, date: Date()))
         }
         votesV2[key] = entries
-        saveVotesV2(votesV2)
+        TGEventPersistence.saveVotesV2(votesV2)
 
         if answer == "yes", prev != "yes" { copyEventToPersonal(event) }
         NotificationCenter.default.post(name: NSNotification.Name("tgEventVoteChanged"), object: nil)
@@ -566,36 +528,45 @@ public final class EventCardNavigatorController: UIViewController {
     }
 
     private func copyEventToPersonal(_ event: TGEvent) {
-        var stored = loadStoredEvents()
+        var stored = TGEventPersistence.loadEvents()
         guard !stored.contains(where: { $0.chatId == nil && $0.title == event.title && $0.startDate == event.startDate }) else { return }
         stored.append(TGEvent(id: UUID(), title: event.title, startDate: event.startDate, endDate: event.endDate,
                               participants: event.participants, location: event.location, chatId: nil))
-        saveStoredEvents(stored)
+        TGEventPersistence.saveEvents(stored)
     }
 
     // MARK: - Message scan
 
     private func scanMessageHistory() {
         let chatId = self.chatId
+        // chatId stored as peerId.toInt64() — use PeerId(Int64) to reconstruct correctly.
+        // Also try legacy format where chatId stored only the raw id without namespace.
+        let packedPeerId  = PeerId(chatId)
         let groupPeerId   = PeerId(namespace: Namespaces.Peer.CloudGroup,   id: PeerId.Id._internalFromInt64Value(chatId))
         let channelPeerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(chatId))
         let userPeerId    = PeerId(namespace: Namespaces.Peer.CloudUser,    id: PeerId.Id._internalFromInt64Value(chatId))
 
         scanDisposable = (context.account.postbox.transaction { transaction -> [TGEvent] in
             var resolvedPeerId: PeerId?
-            for candidate in [groupPeerId, channelPeerId, userPeerId] {
+            for candidate in [packedPeerId, groupPeerId, channelPeerId, userPeerId] {
                 if transaction.getPeer(candidate) != nil { resolvedPeerId = candidate; break }
             }
-            guard let peerId = resolvedPeerId else { return [] }
+            var dbg = "chatId=\(chatId) packed=\(packedPeerId) resolved=\(String(describing: resolvedPeerId))\n"
+            guard let peerId = resolvedPeerId else {
+                Self.writeDebug(dbg + "NO PEER FOUND\n")
+                return []
+            }
             let view = transaction.getMessagesHistoryViewState(
                 input: .single(peerId: peerId, threadId: nil),
                 ignoreMessagesInTimestampRange: nil, ignoreMessageIds: Set(),
                 count: 200, clipHoles: true, anchor: .upperBound,
                 namespaces: .just(Set([Namespaces.Message.Cloud])))
+            dbg += "entries=\(view.entries.count)\n"
             var found: [TGEvent] = []
             for entry in view.entries {
                 if let attr = entry.message.attributes.first(where: { $0 is TGEventAttribute }) as? TGEventAttribute,
                    let uuid = UUID(uuidString: attr.eventId) {
+                    dbg += "attr: \(attr.title)\n"
                     found.append(TGEvent(id: uuid, title: attr.title,
                         startDate: Date(timeIntervalSince1970: attr.startTimestamp),
                         endDate: Date(timeIntervalSince1970: attr.endTimestamp),
@@ -610,21 +581,31 @@ public final class EventCardNavigatorController: UIViewController {
                 guard let data = jsonStr.data(using: .utf8),
                       let m = try? JSONDecoder().decode(LegacyMarker.self, from: data),
                       let uuid = UUID(uuidString: m.i) else { continue }
+                dbg += "legacy: \(m.t)\n"
                 found.append(TGEvent(id: uuid, title: m.t,
                     startDate: Date(timeIntervalSince1970: m.s), endDate: Date(timeIntervalSince1970: m.e),
                     participants: [], location: m.l, chatId: chatId))
             }
+            dbg += "found=\(found.count)\n"
+            Self.writeDebug(dbg)
             return found
         } |> deliverOnMainQueue).startStandalone { [weak self] discovered in
             guard let self, !discovered.isEmpty else { return }
-            var stored = loadStoredEvents()
+            var stored = TGEventPersistence.loadEvents()
             let existingIds = Set(stored.map { $0.id })
             let newEvents = discovered.filter { !existingIds.contains($0.id) }
             guard !newEvents.isEmpty else { return }
             stored.append(contentsOf: newEvents)
-            saveStoredEvents(stored)
+            TGEventPersistence.saveEvents(stored)
             self.reload()
         }
+    }
+
+    private static func writeDebug(_ text: String) {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let url = docs.appendingPathComponent("tgevent_scan_debug.txt")
+        let existing = (try? String(contentsOf: url)) ?? ""
+        try? (existing + text).write(to: url, atomically: true, encoding: .utf8)
     }
 }
 

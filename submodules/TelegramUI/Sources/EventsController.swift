@@ -601,17 +601,12 @@ public final class EventsController: TelegramBaseController {
     // MARK: Persistence
 
     private func loadEvents() -> [TGEvent] {
-        guard let data = UserDefaults.standard.data(forKey: TGEventStorage.eventsKey),
-              let events = try? JSONDecoder().decode([TGEvent].self, from: data) else {
-            return seedEvents
-        }
-        return events
+        let stored = TGEventPersistence.loadEvents()
+        return stored.isEmpty ? seedEvents : stored
     }
 
     private func saveEvents() {
-        if let data = try? JSONEncoder().encode(allEvents) {
-            UserDefaults.standard.set(data, forKey: TGEventStorage.eventsKey)
-        }
+        TGEventPersistence.saveEvents(allEvents)
     }
 
     private func reloadEvents() {
