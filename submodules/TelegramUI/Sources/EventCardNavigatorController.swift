@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import EventKit
 import AccountContext
 import SwiftSignalKit
 import Postbox
@@ -10,7 +11,7 @@ import TelegramCore
 struct TGVoteEntry: Codable {
     let userId: Int64
     let displayName: String
-    let vote: String    // "yes" or "no"
+    let vote: String
     let date: Date
 }
 
@@ -52,208 +53,232 @@ private func saveStoredEvents(_ events: [TGEvent]) {
     }
 }
 
-// MARK: - Card view
+// MARK: - Initials avatar
 
-private final class EventCardView: UIView {
-    private let titleLabel = UILabel()
-    private let dateLabel = UILabel()
-    private let timeLabel = UILabel()
-    private let locationLabel = UILabel()
-    private let divider = UIView()
-    private let yesButton = UIButton(type: .system)
-    private let noButton = UIButton(type: .system)
-    private let statusLabel = UILabel()
-
-    var onYes: (() -> Void)?
-    var onNo: (() -> Void)?
+private final class InitialsAvatarView: UIView {
+    private let label = UILabel()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        setupUI()
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    private func setupUI() {
-        backgroundColor = .secondarySystemGroupedBackground
-        layer.cornerRadius = 20
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOffset = CGSize(width: 0, height: 4)
-        layer.shadowOpacity = 0.12
-        layer.shadowRadius = 12
-
-        titleLabel.font = .systemFont(ofSize: 22, weight: .bold)
-        titleLabel.numberOfLines = 2
-        titleLabel.textColor = .label
-
-        dateLabel.font = .systemFont(ofSize: 15, weight: .medium)
-        dateLabel.textColor = .secondaryLabel
-
-        timeLabel.font = .systemFont(ofSize: 17, weight: .semibold)
-        timeLabel.textColor = .label
-
-        locationLabel.font = .systemFont(ofSize: 15)
-        locationLabel.textColor = .secondaryLabel
-        locationLabel.numberOfLines = 1
-
-        divider.backgroundColor = .separator
-
-        statusLabel.font = .systemFont(ofSize: 14)
-        statusLabel.textColor = .secondaryLabel
-        statusLabel.textAlignment = .center
-
-        for btn in [yesButton, noButton] {
-            btn.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
-            btn.layer.cornerRadius = 14
-        }
-        yesButton.setTitle("✅  Иду", for: .normal)
-        yesButton.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.15)
-        yesButton.setTitleColor(.systemGreen, for: .normal)
-        yesButton.addTarget(self, action: #selector(yesTapped), for: .touchUpInside)
-
-        noButton.setTitle("❌  Не иду", for: .normal)
-        noButton.backgroundColor = UIColor.systemRed.withAlphaComponent(0.1)
-        noButton.setTitleColor(.systemRed, for: .normal)
-        noButton.addTarget(self, action: #selector(noTapped), for: .touchUpInside)
-
-        for v in [titleLabel, dateLabel, timeLabel, locationLabel, divider, yesButton, noButton, statusLabel] as [UIView] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(v)
-        }
-
+        clipsToBounds = true
+        label.textAlignment = .center
+        label.textColor = .white
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
         NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 28),
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
-
-            dateLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 20),
-            dateLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
-
-            timeLabel.topAnchor.constraint(equalTo: dateLabel.bottomAnchor, constant: 4),
-            timeLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
-
-            locationLabel.topAnchor.constraint(equalTo: timeLabel.bottomAnchor, constant: 8),
-            locationLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
-            locationLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
-
-            divider.topAnchor.constraint(equalTo: locationLabel.bottomAnchor, constant: 24),
-            divider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
-            divider.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
-            divider.heightAnchor.constraint(equalToConstant: 0.5),
-
-            yesButton.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: 24),
-            yesButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
-            yesButton.trailingAnchor.constraint(equalTo: centerXAnchor, constant: -6),
-            yesButton.heightAnchor.constraint(equalToConstant: 52),
-
-            noButton.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: 24),
-            noButton.leadingAnchor.constraint(equalTo: centerXAnchor, constant: 6),
-            noButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
-            noButton.heightAnchor.constraint(equalToConstant: 52),
-
-            statusLabel.topAnchor.constraint(equalTo: yesButton.bottomAnchor, constant: 16),
-            statusLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
-            statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
-            statusLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -24),
+            label.centerXAnchor.constraint(equalTo: centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
-    private static let dateFmt: DateFormatter = {
-        let f = DateFormatter(); f.locale = Locale(identifier: "ru_RU")
-        f.dateFormat = "EEEE, d MMMM"; return f
-    }()
-    private static let timeFmt: DateFormatter = {
-        let f = DateFormatter(); f.locale = Locale(identifier: "ru_RU")
-        f.dateFormat = "HH:mm"; return f
-    }()
+    required init?(coder: NSCoder) { fatalError() }
 
-    func configure(event: TGEvent, vote: String?) {
-        var dateStr = Self.dateFmt.string(from: event.startDate)
-        if let first = dateStr.first { dateStr = first.uppercased() + dateStr.dropFirst() }
-
-        titleLabel.text = event.title
-        dateLabel.text = "📅  \(dateStr)"
-        timeLabel.text = "⏰  \(Self.timeFmt.string(from: event.startDate)) – \(Self.timeFmt.string(from: event.endDate))"
-
-        if let loc = event.location, !loc.isEmpty {
-            locationLabel.text = "📍  \(loc)"
-            locationLabel.isHidden = false
-        } else {
-            locationLabel.isHidden = true
-        }
-
-        applyVoteState(vote)
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.cornerRadius = bounds.width / 2
+        label.font = .systemFont(ofSize: bounds.width * 0.4, weight: .medium)
     }
 
-    private func applyVoteState(_ vote: String?) {
-        switch vote {
-        case "yes":
-            yesButton.backgroundColor = .systemGreen
-            yesButton.setTitleColor(.white, for: .normal)
-            noButton.backgroundColor = UIColor.systemRed.withAlphaComponent(0.1)
-            noButton.setTitleColor(.systemRed, for: .normal)
-            statusLabel.text = "Вы идёте на встречу ✓"
-            statusLabel.textColor = .systemGreen
-        case "no":
-            noButton.backgroundColor = .systemRed
-            noButton.setTitleColor(.white, for: .normal)
-            yesButton.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.15)
-            yesButton.setTitleColor(.systemGreen, for: .normal)
-            statusLabel.text = "Вы отказались от встречи"
-            statusLabel.textColor = .systemRed
-        default:
-            yesButton.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.15)
-            yesButton.setTitleColor(.systemGreen, for: .normal)
-            noButton.backgroundColor = UIColor.systemRed.withAlphaComponent(0.1)
-            noButton.setTitleColor(.systemRed, for: .normal)
-            statusLabel.text = "Вы ещё не ответили"
-            statusLabel.textColor = .secondaryLabel
-        }
+    func configure(name: String) {
+        label.text = name.first.map { String($0).uppercased() } ?? "?"
+        let palette: [UIColor] = [.systemBlue, .systemGreen, .systemPurple, .systemOrange, .systemPink, .systemTeal]
+        backgroundColor = palette[abs(name.hashValue) % palette.count]
     }
-
-    @objc private func yesTapped() { onYes?() }
-    @objc private func noTapped() { onNo?() }
 }
 
-// MARK: - Navigator controller
+// MARK: - Participant cell
+
+private final class ParticipantCell: UITableViewCell {
+    private let avatarView = InitialsAvatarView(frame: .zero)
+    private let nameLabel = UILabel()
+    private let badgeLabel = UILabel()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+
+        nameLabel.font = .systemFont(ofSize: 16)
+        nameLabel.textColor = .label
+
+        badgeLabel.font = .systemFont(ofSize: 13)
+        badgeLabel.textColor = .secondaryLabel
+        badgeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        for v in [avatarView, nameLabel, badgeLabel] as [UIView] {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview(v)
+        }
+
+        NSLayoutConstraint.activate([
+            avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            avatarView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            avatarView.widthAnchor.constraint(equalToConstant: 36),
+            avatarView.heightAnchor.constraint(equalToConstant: 36),
+
+            nameLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 12),
+            nameLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+
+            badgeLabel.leadingAnchor.constraint(greaterThanOrEqualTo: nameLabel.trailingAnchor, constant: 8),
+            badgeLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            badgeLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(name: String, badge: String?) {
+        avatarView.configure(name: name)
+        nameLabel.text = name
+        badgeLabel.text = badge
+        badgeLabel.isHidden = badge == nil
+    }
+}
+
+// MARK: - Info cell (icon + header label + value + optional green action link)
+
+private final class InfoCell: UITableViewCell {
+    private let iconView = UIImageView()
+    private let headerLabel = UILabel()
+    private let valueLabel = UILabel()
+    private let actionsStack = UIStackView()
+    private let primaryButton = UIButton(type: .system)
+    private let secondaryButton = UIButton(type: .system)
+    private var bottomToValue: NSLayoutConstraint!
+    private var bottomToActions: NSLayoutConstraint!
+    var onAction: (() -> Void)?
+    var onSecondaryAction: (() -> Void)?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+
+        let green = UIColor(red: 0.07, green: 0.49, blue: 0.15, alpha: 1)
+
+        iconView.contentMode = .scaleAspectFit
+        iconView.tintColor = .secondaryLabel
+
+        headerLabel.font = .systemFont(ofSize: 13)
+        headerLabel.textColor = .secondaryLabel
+
+        valueLabel.font = .systemFont(ofSize: 16)
+        valueLabel.textColor = .label
+        valueLabel.numberOfLines = 2
+
+        primaryButton.titleLabel?.font = .systemFont(ofSize: 14)
+        primaryButton.tintColor = green
+        primaryButton.contentHorizontalAlignment = .left
+        primaryButton.addTarget(self, action: #selector(primaryTapped), for: .touchUpInside)
+
+        secondaryButton.titleLabel?.font = .systemFont(ofSize: 14)
+        secondaryButton.tintColor = .secondaryLabel
+        secondaryButton.contentHorizontalAlignment = .left
+        secondaryButton.addTarget(self, action: #selector(secondaryTapped), for: .touchUpInside)
+
+        actionsStack.axis = .horizontal
+        actionsStack.spacing = 16
+        actionsStack.alignment = .leading
+        actionsStack.addArrangedSubview(primaryButton)
+        actionsStack.addArrangedSubview(secondaryButton)
+
+        for v in [iconView, headerLabel, valueLabel, actionsStack] as [UIView] {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview(v)
+        }
+
+        bottomToValue   = contentView.bottomAnchor.constraint(equalTo: valueLabel.bottomAnchor, constant: 14)
+        bottomToActions = contentView.bottomAnchor.constraint(equalTo: actionsStack.bottomAnchor, constant: 14)
+
+        NSLayoutConstraint.activate([
+            iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            iconView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
+            iconView.widthAnchor.constraint(equalToConstant: 20),
+            iconView.heightAnchor.constraint(equalToConstant: 20),
+
+            headerLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            headerLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
+            headerLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+
+            valueLabel.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: 3),
+            valueLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
+            valueLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+
+            actionsStack.topAnchor.constraint(equalTo: valueLabel.bottomAnchor, constant: 4),
+            actionsStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
+            actionsStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(icon: String, header: String, value: String, actionTitle: String?, secondaryActionTitle: String? = nil) {
+        iconView.image = UIImage(systemName: icon)
+        headerLabel.text = header
+        valueLabel.text = value
+        let hasActions = actionTitle != nil || secondaryActionTitle != nil
+        if hasActions {
+            primaryButton.setTitle(actionTitle, for: .normal)
+            primaryButton.isHidden = actionTitle == nil
+            secondaryButton.setTitle(secondaryActionTitle, for: .normal)
+            secondaryButton.isHidden = secondaryActionTitle == nil
+            actionsStack.isHidden = false
+            bottomToValue.isActive = false
+            bottomToActions.isActive = true
+        } else {
+            actionsStack.isHidden = true
+            bottomToActions.isActive = false
+            bottomToValue.isActive = true
+        }
+    }
+
+    @objc private func primaryTapped() { onAction?() }
+    @objc private func secondaryTapped() { onSecondaryAction?() }
+}
+
+// MARK: - EventCardNavigatorController
 
 public final class EventCardNavigatorController: UIViewController {
     private let chatId: Int64
     private let context: AccountContext
     private var events: [TGEvent] = []
-    private var currentIndex: Int = 0
     private var scanDisposable: Disposable?
     private var currentUserId: Int64 = 0
     private var currentUserName: String = "Вы"
+    private var initialEventId: String?
 
-    // Layout
-    private let scrollView = UIScrollView()
-    private let contentView = UIView()
-    private let counterLabel = UILabel()
-    private let cardView = EventCardView()
-    private let prevButton = UIButton(type: .system)
-    private let nextButton = UIButton(type: .system)
+    private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+    private let goingButton = UIButton(type: .system)
     private let emptyLabel = UILabel()
-    private let participantsStack = UIStackView()
 
-    public init(chatId: Int64, context: AccountContext) {
+    private var currentEvent: TGEvent? { events.first }
+
+    public init(chatId: Int64, context: AccountContext, initialEventId: String? = nil) {
         self.chatId = chatId
         self.context = context
+        self.initialEventId = initialEventId
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    deinit {
-        scanDisposable?.dispose()
-    }
+    deinit { scanDisposable?.dispose() }
 
     public override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemGroupedBackground
-        title = "События"
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .close, target: self, action: #selector(closeTapped))
+        title = "Мероприятие"
 
-        setupLayout()
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            image: UIImage(systemName: "xmark"), style: .plain,
+            target: self, action: #selector(closeTapped))
+        navigationItem.leftBarButtonItem?.tintColor = .secondaryLabel
+
+        let editButton = UIBarButtonItem(title: "Изменить", style: .plain,
+            target: self, action: #selector(editTapped))
+        editButton.tintColor = UIColor(red: 0.07, green: 0.49, blue: 0.15, alpha: 1)
+        navigationItem.rightBarButtonItem = editButton
+
+        setupTableView()
+        setupGoingButton()
+        setupEmptyLabel()
         loadCurrentUser()
         reload()
         scanMessageHistory()
@@ -264,85 +289,55 @@ public final class EventCardNavigatorController: UIViewController {
         reload()
     }
 
-    // MARK: - Layout
+    // MARK: - Setup
 
-    private func setupLayout() {
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.alwaysBounceVertical = true
-        view.addSubview(scrollView)
+    private func setupTableView() {
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.register(InfoCell.self, forCellReuseIdentifier: "info")
+        tableView.register(ParticipantCell.self, forCellReuseIdentifier: "participant")
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "basic")
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(tableView)
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+    }
 
-        contentView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.addSubview(contentView)
+    private func setupGoingButton() {
+        goingButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+        goingButton.backgroundColor = UIColor(red: 0.07, green: 0.49, blue: 0.15, alpha: 1)
+        goingButton.setTitleColor(.white, for: .normal)
+        goingButton.layer.cornerRadius = 14
+        goingButton.addTarget(self, action: #selector(goingTapped), for: .touchUpInside)
+        goingButton.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(goingButton)
         NSLayoutConstraint.activate([
-            contentView.topAnchor.constraint(equalTo: scrollView.topAnchor),
-            contentView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
-            contentView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
-            contentView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
-            contentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
+            goingButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            goingButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            goingButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            goingButton.heightAnchor.constraint(equalToConstant: 52),
         ])
+        tableView.contentInset.bottom = 80
+    }
 
-        counterLabel.font = .systemFont(ofSize: 14, weight: .medium)
-        counterLabel.textColor = .secondaryLabel
-        counterLabel.textAlignment = .center
-        counterLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        cardView.translatesAutoresizingMaskIntoConstraints = false
-
-        prevButton.setTitle("◀  Предыдущее", for: .normal)
-        prevButton.titleLabel?.font = .systemFont(ofSize: 15)
-        prevButton.addTarget(self, action: #selector(prevTapped), for: .touchUpInside)
-        prevButton.translatesAutoresizingMaskIntoConstraints = false
-
-        nextButton.setTitle("Следующее  ▶", for: .normal)
-        nextButton.titleLabel?.font = .systemFont(ofSize: 15)
-        nextButton.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
-        nextButton.translatesAutoresizingMaskIntoConstraints = false
-
+    private func setupEmptyLabel() {
         emptyLabel.text = "Нет событий в этом чате"
         emptyLabel.font = .systemFont(ofSize: 17)
         emptyLabel.textColor = .secondaryLabel
         emptyLabel.textAlignment = .center
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        participantsStack.axis = .vertical
-        participantsStack.spacing = 0
-        participantsStack.translatesAutoresizingMaskIntoConstraints = false
-
-        for v in [counterLabel, cardView, prevButton, nextButton, emptyLabel, participantsStack] as [UIView] {
-            contentView.addSubview(v)
-        }
-
+        view.addSubview(emptyLabel)
         NSLayoutConstraint.activate([
-            counterLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-            counterLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-
-            cardView.topAnchor.constraint(equalTo: counterLabel.bottomAnchor, constant: 12),
-            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-
-            prevButton.topAnchor.constraint(equalTo: cardView.bottomAnchor, constant: 20),
-            prevButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
-
-            nextButton.topAnchor.constraint(equalTo: cardView.bottomAnchor, constant: 20),
-            nextButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
-
-            participantsStack.topAnchor.constraint(equalTo: prevButton.bottomAnchor, constant: 24),
-            participantsStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            participantsStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            participantsStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -32),
-
-            emptyLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            emptyLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 120),
+            emptyLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
         ])
     }
 
-    // MARK: - Current user
+    // MARK: - Data
 
     private func loadCurrentUser() {
         let accountPeerId = context.account.peerId
@@ -356,243 +351,257 @@ public final class EventCardNavigatorController: UIViewController {
         } |> deliverOnMainQueue).startStandalone { [weak self] (userId, name) in
             self?.currentUserId = userId
             self?.currentUserName = name
+            self?.refreshEditButton()
         }
     }
 
-    // MARK: - Data
+    private func refreshEditButton() {
+        guard let event = currentEvent else {
+            navigationItem.rightBarButtonItem = nil
+            return
+        }
+        // Show "Изменить" only to the creator; nil creatorId = legacy event (treat as own)
+        let isCreator = event.creatorId == nil || event.creatorId == currentUserId
+        if isCreator {
+            if navigationItem.rightBarButtonItem == nil {
+                let editButton = UIBarButtonItem(title: "Изменить", style: .plain,
+                    target: self, action: #selector(editTapped))
+                editButton.tintColor = UIColor(red: 0.07, green: 0.49, blue: 0.15, alpha: 1)
+                navigationItem.rightBarButtonItem = editButton
+            }
+        } else {
+            navigationItem.rightBarButtonItem = nil
+        }
+    }
 
     private func reload() {
         let all = loadStoredEvents()
-        let newEvents = all.filter { $0.chatId == chatId }
-            .sorted { $0.startDate > $1.startDate }
-        if newEvents.map(\.id) != events.map(\.id) {
-            currentIndex = 0
+        var sorted = all.filter { $0.chatId == chatId }.sorted { $0.startDate > $1.startDate }
+        if let targetId = initialEventId,
+           let idx = sorted.firstIndex(where: { $0.id.uuidString == targetId }) {
+            let target = sorted.remove(at: idx)
+            sorted.insert(target, at: 0)
         }
-        events = newEvents
-        updateUI()
-    }
-
-    private func updateUI() {
+        events = sorted
         let hasEvents = !events.isEmpty
-        cardView.isHidden = !hasEvents
-        counterLabel.isHidden = !hasEvents
-        prevButton.isHidden = !hasEvents
-        nextButton.isHidden = !hasEvents
+        tableView.isHidden = !hasEvents
+        goingButton.isHidden = !hasEvents
         emptyLabel.isHidden = hasEvents
-        participantsStack.isHidden = !hasEvents
-
         guard hasEvents else { return }
-
-        let event = events[currentIndex]
-        let votes = loadVotes()
-        cardView.configure(event: event, vote: votes[event.id.uuidString])
-        counterLabel.text = "\(currentIndex + 1) / \(events.count)"
-        prevButton.isEnabled = currentIndex < events.count - 1
-        nextButton.isEnabled = currentIndex > 0
-
-        cardView.onYes = { [weak self] in self?.vote("yes", for: event) }
-        cardView.onNo = { [weak self] in self?.vote("no", for: event) }
-
-        rebuildParticipants(for: event)
+        rebuildTitleHeader()
+        refreshGoingButton()
+        refreshEditButton()
+        tableView.reloadData()
     }
 
-    // MARK: - Participant list
+    private func rebuildTitleHeader() {
+        guard let event = currentEvent else { return }
+        let label = UILabel()
+        label.text = event.title
+        label.font = .systemFont(ofSize: 28, weight: .bold)
+        label.textColor = .label
+        label.numberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
 
-    private static let voteDateFmt: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "ru_RU")
-        f.dateFormat = "d MMM, HH:mm"
-        return f
-    }()
-
-    private func rebuildParticipants(for event: TGEvent) {
-        participantsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-
-        let allVotesV2 = loadVotesV2()
-        let entries = (allVotesV2[event.id.uuidString] ?? [])
-            .sorted { $0.date < $1.date }
-
-        let accepted = entries.filter { $0.vote == "yes" }
-        let declined = entries.filter { $0.vote == "no" }
-
-        let topDivider = makeDivider()
-        participantsStack.addArrangedSubview(topDivider)
-
-        let headerLabel = UILabel()
-        headerLabel.text = "Участники"
-        headerLabel.font = .systemFont(ofSize: 17, weight: .semibold)
-        headerLabel.textColor = .label
-        headerLabel.translatesAutoresizingMaskIntoConstraints = false
-        let headerWrap = wrapWithPadding(headerLabel, top: 20, bottom: 8, leading: 20, trailing: 20)
-        participantsStack.addArrangedSubview(headerWrap)
-
-        addParticipantSection(title: "✅ Идут (\(accepted.count))",
-                              entries: accepted,
-                              highlightColor: .systemGreen)
-        addParticipantSection(title: "❌ Не идут (\(declined.count))",
-                              entries: declined,
-                              highlightColor: .systemRed)
-
-        if accepted.isEmpty && declined.isEmpty {
-            let noVotesLabel = UILabel()
-            noVotesLabel.text = "Пока никто не ответил"
-            noVotesLabel.font = .systemFont(ofSize: 14)
-            noVotesLabel.textColor = .tertiaryLabel
-            let wrap = wrapWithPadding(noVotesLabel, top: 8, bottom: 8, leading: 20, trailing: 20)
-            participantsStack.addArrangedSubview(wrap)
-        }
-    }
-
-    private func addParticipantSection(title: String, entries: [TGVoteEntry], highlightColor: UIColor) {
-        let sectionHeader = UILabel()
-        sectionHeader.text = title
-        sectionHeader.font = .systemFont(ofSize: 14, weight: .semibold)
-        sectionHeader.textColor = highlightColor
-        let sectionWrap = wrapWithPadding(sectionHeader, top: 12, bottom: 4, leading: 20, trailing: 20)
-        participantsStack.addArrangedSubview(sectionWrap)
-
-        if entries.isEmpty {
-            let emptyRowLabel = UILabel()
-            emptyRowLabel.text = "  —"
-            emptyRowLabel.font = .systemFont(ofSize: 14)
-            emptyRowLabel.textColor = .tertiaryLabel
-            let wrap = wrapWithPadding(emptyRowLabel, top: 2, bottom: 2, leading: 20, trailing: 20)
-            participantsStack.addArrangedSubview(wrap)
-        } else {
-            for entry in entries {
-                let row = makeParticipantRow(entry: entry)
-                participantsStack.addArrangedSubview(row)
-            }
-        }
-    }
-
-    private func makeParticipantRow(entry: TGVoteEntry) -> UIView {
-        let nameLabel = UILabel()
-        nameLabel.text = entry.displayName
-        nameLabel.font = .systemFont(ofSize: 15)
-        nameLabel.textColor = .label
-        nameLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        let dateLabel = UILabel()
-        dateLabel.text = Self.voteDateFmt.string(from: entry.date)
-        dateLabel.font = .systemFont(ofSize: 13)
-        dateLabel.textColor = .tertiaryLabel
-        dateLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        let row = UIStackView(arrangedSubviews: [nameLabel, dateLabel])
-        row.axis = .horizontal
-        row.spacing = 8
-        row.alignment = .center
-        row.layoutMargins = UIEdgeInsets(top: 6, left: 20, bottom: 6, right: 20)
-        row.isLayoutMarginsRelativeArrangement = true
-        return row
-    }
-
-    private func makeDivider() -> UIView {
-        let v = UIView()
-        v.backgroundColor = .separator
-        v.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
-        return v
-    }
-
-    private func wrapWithPadding(_ child: UIView, top: CGFloat, bottom: CGFloat, leading: CGFloat, trailing: CGFloat) -> UIView {
-        let wrap = UIView()
-        child.translatesAutoresizingMaskIntoConstraints = false
-        wrap.addSubview(child)
+        let header = UIView()
+        header.addSubview(label)
         NSLayoutConstraint.activate([
-            child.topAnchor.constraint(equalTo: wrap.topAnchor, constant: top),
-            child.bottomAnchor.constraint(equalTo: wrap.bottomAnchor, constant: -bottom),
-            child.leadingAnchor.constraint(equalTo: wrap.leadingAnchor, constant: leading),
-            child.trailingAnchor.constraint(equalTo: wrap.trailingAnchor, constant: -trailing),
+            label.topAnchor.constraint(equalTo: header.topAnchor, constant: 8),
+            label.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -16),
+            label.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 20),
+            label.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -20),
         ])
-        return wrap
+
+        let width = tableView.bounds.width > 0 ? tableView.bounds.width : UIScreen.main.bounds.width
+        let size = header.systemLayoutSizeFitting(
+            CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel)
+        header.frame = CGRect(x: 0, y: 0, width: width, height: size.height)
+        tableView.tableHeaderView = header
     }
 
-    // MARK: - Voting
+    private func refreshGoingButton() {
+        guard let event = currentEvent else { return }
+        let myVote = loadVotes()[event.id.uuidString]
+        switch myVote {
+        case "yes":
+            goingButton.setTitle("Пойду  ∨", for: .normal)
+            goingButton.backgroundColor = UIColor(red: 0.07, green: 0.49, blue: 0.15, alpha: 1)
+        case "no":
+            goingButton.setTitle("Не иду  ∨", for: .normal)
+            goingButton.backgroundColor = .systemGray
+        default:
+            goingButton.setTitle("Пойду  ∨", for: .normal)
+            goingButton.backgroundColor = UIColor(red: 0.07, green: 0.49, blue: 0.15, alpha: 1)
+        }
+    }
 
-    private func vote(_ answer: String, for event: TGEvent) {
+    // MARK: - Section model
+
+    private enum Section { case dateTime, address, reminder, going, notResponded }
+
+    private var computedSections: [Section] {
+        var s: [Section] = [.dateTime]
+        if !(currentEvent?.location ?? "").isEmpty { s.append(.address) }
+        s.append(.reminder)
+        s.append(.going)
+        if !notRespondedNames.isEmpty { s.append(.notResponded) }
+        return s
+    }
+
+    private var goingEntries: [TGVoteEntry] {
+        guard let event = currentEvent else { return [] }
+        return (loadVotesV2()[event.id.uuidString] ?? [])
+            .filter { $0.vote == "yes" }.sorted { $0.date < $1.date }
+    }
+
+    private var notRespondedNames: [String] {
+        guard let event = currentEvent else { return [] }
+        let allEntries = loadVotesV2()[event.id.uuidString] ?? []
+        let respondedNames = Set(allEntries.map { $0.displayName.lowercased().trimmingCharacters(in: .whitespaces) })
+        let currentUserVoted = allEntries.contains { $0.userId == currentUserId }
+        let currentNameNorm = currentUserName.lowercased().trimmingCharacters(in: .whitespaces)
+        return event.participants.filter { participant in
+            let norm = participant.lowercased().trimmingCharacters(in: .whitespaces)
+            if respondedNames.contains(norm) { return false }
+            if currentUserVoted && norm == currentNameNorm { return false }
+            return true
+        }
+    }
+
+    // MARK: - Actions
+
+    private func addEventToSystemCalendar(_ event: TGEvent) {
+        let confirmAlert = UIAlertController(title: "Добавить в Календарь", message: event.title, preferredStyle: .alert)
+        confirmAlert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        confirmAlert.addAction(UIAlertAction(title: "Добавить", style: .default) { [weak self] _ in
+            guard let self else { return }
+            let store = EKEventStore()
+            let doAdd: () -> Void = { [weak self, store] in
+                let endDate = event.endDate > event.startDate ? event.endDate : Calendar.current.date(byAdding: .hour, value: 1, to: event.startDate) ?? event.startDate
+                let predicate = store.predicateForEvents(withStart: event.startDate, end: endDate, calendars: nil)
+                let existing = store.events(matching: predicate)
+                let alreadyAdded = existing.contains { $0.title == event.title && abs($0.startDate.timeIntervalSince(event.startDate)) < 1 }
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if alreadyAdded {
+                        let alert = UIAlertController(title: "Уже в Календаре", message: event.title, preferredStyle: .alert)
+                        alert.addAction(UIAlertAction(title: "OK", style: .default))
+                        self.present(alert, animated: true)
+                        return
+                    }
+                    let ekEvent = EKEvent(eventStore: store)
+                    ekEvent.title = event.title
+                    ekEvent.startDate = event.startDate
+                    ekEvent.endDate = endDate
+                    if let loc = event.location { ekEvent.location = loc }
+                    ekEvent.calendar = store.defaultCalendarForNewEvents
+                    try? store.save(ekEvent, span: .thisEvent, commit: true)
+                    let doneAlert = UIAlertController(title: "Добавлено в Календарь", message: event.title, preferredStyle: .alert)
+                    doneAlert.addAction(UIAlertAction(title: "OK", style: .default))
+                    self.present(doneAlert, animated: true)
+                }
+            }
+            if #available(iOS 17.0, *) {
+                store.requestWriteOnlyAccessToEvents { granted, _ in if granted { doAdd() } }
+            } else {
+                store.requestAccess(to: .event) { granted, _ in if granted { doAdd() } }
+            }
+        })
+        present(confirmAlert, animated: true)
+    }
+
+    @objc private func closeTapped() { dismiss(animated: true) }
+
+    @objc private func editTapped() {
+        guard let event = currentEvent else { return }
+        let editVC = CreateEventController(context: context, editingEvent: event)
+        editVC.onSave = { [weak self] _ in self?.reload() }
+        navigationController?.pushViewController(editVC, animated: true)
+    }
+
+    @objc private func goingTapped() {
+        guard let event = currentEvent else { return }
+        let myVote = loadVotes()[event.id.uuidString]
+
+        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        let goAction = UIAlertAction(title: "Пойду", style: .default) { [weak self] _ in
+            self?.castVote("yes", for: event)
+        }
+        if myVote == "yes" { goAction.setValue(true, forKey: "checked") }
+        sheet.addAction(goAction)
+
+        let noAction = UIAlertAction(title: "Не иду", style: .default) { [weak self] _ in
+            self?.castVote("no", for: event)
+        }
+        if myVote == "no" { noAction.setValue(true, forKey: "checked") }
+        sheet.addAction(noAction)
+
+        sheet.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        present(sheet, animated: true)
+    }
+
+    private func castVote(_ answer: String, for event: TGEvent) {
         let key = event.id.uuidString
-
-        // v1 (for badge counting)
         var votes = loadVotes()
         let prev = votes[key]
         votes[key] = (prev == answer) ? nil : answer
         saveVotes(votes)
 
-        // v2 (for participant list with names/dates)
         var votesV2 = loadVotesV2()
         var entries = votesV2[key] ?? []
         entries.removeAll { $0.userId == currentUserId }
         if prev != answer {
             entries.append(TGVoteEntry(
-                userId: currentUserId,
-                displayName: currentUserName,
-                vote: answer,
-                date: Date()
-            ))
+                userId: currentUserId, displayName: currentUserName,
+                vote: answer, date: Date()))
         }
         votesV2[key] = entries
         saveVotesV2(votesV2)
 
-        if answer == "yes", prev != "yes" {
-            addEventToPersonalCalendar(event)
-        }
-
-        updateUI()
+        if answer == "yes", prev != "yes" { copyEventToPersonal(event) }
+        NotificationCenter.default.post(name: NSNotification.Name("tgEventVoteChanged"), object: nil)
+        reload()
     }
 
-    private func addEventToPersonalCalendar(_ event: TGEvent) {
+    private func copyEventToPersonal(_ event: TGEvent) {
         var stored = loadStoredEvents()
-        let alreadyExists = stored.contains {
-            $0.chatId == nil && $0.title == event.title && $0.startDate == event.startDate
-        }
-        guard !alreadyExists else { return }
-        stored.append(TGEvent(
-            id: UUID(), title: event.title,
-            startDate: event.startDate, endDate: event.endDate,
-            participants: event.participants, location: event.location,
-            chatId: nil
-        ))
+        guard !stored.contains(where: { $0.chatId == nil && $0.title == event.title && $0.startDate == event.startDate }) else { return }
+        stored.append(TGEvent(id: UUID(), title: event.title, startDate: event.startDate, endDate: event.endDate,
+                              participants: event.participants, location: event.location, chatId: nil))
         saveStoredEvents(stored)
     }
 
-    // MARK: - Cross-device event discovery via TGEventAttribute
+    // MARK: - Message scan
 
     private func scanMessageHistory() {
         let chatId = self.chatId
-        let groupPeerId = PeerId(namespace: Namespaces.Peer.CloudGroup,    id: PeerId.Id._internalFromInt64Value(chatId))
+        let groupPeerId   = PeerId(namespace: Namespaces.Peer.CloudGroup,   id: PeerId.Id._internalFromInt64Value(chatId))
         let channelPeerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(chatId))
+        let userPeerId    = PeerId(namespace: Namespaces.Peer.CloudUser,    id: PeerId.Id._internalFromInt64Value(chatId))
 
         scanDisposable = (context.account.postbox.transaction { transaction -> [TGEvent] in
             var resolvedPeerId: PeerId?
-            for candidate in [groupPeerId, channelPeerId] {
+            for candidate in [groupPeerId, channelPeerId, userPeerId] {
                 if transaction.getPeer(candidate) != nil { resolvedPeerId = candidate; break }
             }
             guard let peerId = resolvedPeerId else { return [] }
-
             let view = transaction.getMessagesHistoryViewState(
                 input: .single(peerId: peerId, threadId: nil),
-                ignoreMessagesInTimestampRange: nil,
-                ignoreMessageIds: Set(),
-                count: 200, clipHoles: true,
-                anchor: .upperBound,
-                namespaces: .just(Set([Namespaces.Message.Cloud]))
-            )
-
+                ignoreMessagesInTimestampRange: nil, ignoreMessageIds: Set(),
+                count: 200, clipHoles: true, anchor: .upperBound,
+                namespaces: .just(Set([Namespaces.Message.Cloud])))
             var found: [TGEvent] = []
             for entry in view.entries {
-                // Primary path: TGEventAttribute (invisible, stored on fork clients)
                 if let attr = entry.message.attributes.first(where: { $0 is TGEventAttribute }) as? TGEventAttribute,
                    let uuid = UUID(uuidString: attr.eventId) {
-                    found.append(TGEvent(
-                        id: uuid, title: attr.title,
+                    found.append(TGEvent(id: uuid, title: attr.title,
                         startDate: Date(timeIntervalSince1970: attr.startTimestamp),
                         endDate: Date(timeIntervalSince1970: attr.endTimestamp),
-                        participants: [], location: attr.location, chatId: chatId
-                    ))
+                        participants: [], location: attr.location, chatId: chatId))
                     continue
                 }
-                // Fallback: legacy [TGE:{...}] text marker (messages sent before attribute migration)
                 let text = entry.message.text
                 guard let start = text.range(of: "[TGE:"),
                       let end = text.range(of: "]", range: start.upperBound..<text.endIndex) else { continue }
@@ -601,12 +610,9 @@ public final class EventCardNavigatorController: UIViewController {
                 guard let data = jsonStr.data(using: .utf8),
                       let m = try? JSONDecoder().decode(LegacyMarker.self, from: data),
                       let uuid = UUID(uuidString: m.i) else { continue }
-                found.append(TGEvent(
-                    id: uuid, title: m.t,
-                    startDate: Date(timeIntervalSince1970: m.s),
-                    endDate: Date(timeIntervalSince1970: m.e),
-                    participants: [], location: m.l, chatId: chatId
-                ))
+                found.append(TGEvent(id: uuid, title: m.t,
+                    startDate: Date(timeIntervalSince1970: m.s), endDate: Date(timeIntervalSince1970: m.e),
+                    participants: [], location: m.l, chatId: chatId))
             }
             return found
         } |> deliverOnMainQueue).startStandalone { [weak self] discovered in
@@ -620,34 +626,129 @@ public final class EventCardNavigatorController: UIViewController {
             self.reload()
         }
     }
+}
 
-    // MARK: - Navigation
+// MARK: - UITableViewDataSource
 
-    @objc private func prevTapped() {
-        guard currentIndex < events.count - 1 else { return }
-        currentIndex += 1
-        updateUI()
-        animateTransition(direction: -1)
+extension EventCardNavigatorController: UITableViewDataSource {
+    public func numberOfSections(in tableView: UITableView) -> Int {
+        computedSections.count
     }
 
-    @objc private func nextTapped() {
-        guard currentIndex > 0 else { return }
-        currentIndex -= 1
-        updateUI()
-        animateTransition(direction: 1)
-    }
-
-    private func animateTransition(direction: CGFloat) {
-        let offset = direction * view.bounds.width * 0.4
-        cardView.transform = CGAffineTransform(translationX: offset, y: 0)
-        cardView.alpha = 0.4
-        UIView.animate(withDuration: 0.28, delay: 0, options: .curveEaseOut) {
-            self.cardView.transform = .identity
-            self.cardView.alpha = 1
+    public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        guard section < computedSections.count else { return 0 }
+        switch computedSections[section] {
+        case .dateTime, .address, .reminder: return 1
+        case .going: return max(1, goingEntries.count)
+        case .notResponded: return notRespondedNames.count
         }
     }
 
-    @objc private func closeTapped() {
-        dismiss(animated: true)
+    public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        guard indexPath.section < computedSections.count, let event = currentEvent else {
+            return UITableViewCell()
+        }
+        switch computedSections[indexPath.section] {
+        case .dateTime:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "info", for: indexPath) as! InfoCell
+            let df = DateFormatter()
+            df.locale = Locale(identifier: "ru_RU")
+            df.dateFormat = "EEE, d MMMM · HH:mm"
+            var dateStr = df.string(from: event.startDate)
+            if let first = dateStr.first { dateStr = first.uppercased() + dateStr.dropFirst() }
+            cell.configure(icon: "calendar", header: "Дата и время", value: dateStr, actionTitle: "Добавить в календарь")
+            cell.onAction = { [weak self] in self?.addEventToSystemCalendar(event) }
+            return cell
+
+        case .address:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "info", for: indexPath) as! InfoCell
+            cell.configure(icon: "mappin", header: "Адрес", value: event.location ?? "",
+                           actionTitle: "Маршрут", secondaryActionTitle: "Копировать")
+            cell.onAction = {
+                let loc = event.location ?? ""
+                let encoded = loc.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+                var urlStr: String
+                if let lat = event.locationLatitude, let lon = event.locationLongitude {
+                    urlStr = "maps://?ll=\(lat),\(lon)&q=\(encoded)"
+                } else {
+                    urlStr = "maps://?q=\(encoded)"
+                }
+                if let url = URL(string: urlStr) { UIApplication.shared.open(url) }
+            }
+            cell.onSecondaryAction = { UIPasteboard.general.string = event.location }
+            return cell
+
+        case .reminder:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "info", for: indexPath) as! InfoCell
+            cell.configure(icon: "bell", header: "Напоминание", value: reminderLabel(for: event.reminderMinutes), actionTitle: nil)
+            return cell
+
+        case .going:
+            let entries = goingEntries
+            if entries.isEmpty {
+                let cell = tableView.dequeueReusableCell(withIdentifier: "basic", for: indexPath)
+                cell.textLabel?.text = "Пока никто не ответил"
+                cell.textLabel?.textColor = .tertiaryLabel
+                cell.textLabel?.font = .systemFont(ofSize: 15)
+                cell.selectionStyle = .none
+                return cell
+            }
+            let cell = tableView.dequeueReusableCell(withIdentifier: "participant", for: indexPath) as! ParticipantCell
+            let entry = entries[indexPath.row]
+            let creatorId = event.creatorId ?? currentUserId
+            cell.configure(name: entry.displayName, badge: entry.userId == creatorId ? "Организатор" : nil)
+            return cell
+
+        case .notResponded:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "participant", for: indexPath) as! ParticipantCell
+            cell.configure(name: notRespondedNames[indexPath.row], badge: nil)
+            return cell
+        }
     }
+
+    public func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        guard section < computedSections.count else { return nil }
+        switch computedSections[section] {
+        case .going:
+            let n = goingEntries.count
+            return "Пойдут   \(n) \(participantWord(n))"
+        case .notResponded:
+            let n = notRespondedNames.count
+            return "Не ответили   \(n) \(participantWord(n))"
+        default:
+            return nil
+        }
+    }
+
+    private func participantWord(_ n: Int) -> String {
+        let mod10 = n % 10, mod100 = n % 100
+        if mod10 == 1 && mod100 != 11 { return "участник" }
+        if (2...4).contains(mod10) && !(12...14).contains(mod100) { return "участника" }
+        return "участников"
+    }
+
+    private func reminderLabel(for minutes: Int?) -> String {
+        switch minutes {
+        case nil:     return "Нет"
+        case 15:      return "За 15 минут"
+        case 30:      return "За 30 минут"
+        case 60:      return "За 1 час"
+        case 24 * 60: return "За 1 день"
+        default:      return "Нет"
+        }
+    }
+}
+
+// MARK: - UITableViewDelegate
+
+extension EventCardNavigatorController: UITableViewDelegate {
+    public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard indexPath.section < computedSections.count else { return 44 }
+        switch computedSections[indexPath.section] {
+        case .dateTime, .address, .reminder: return UITableView.automaticDimension
+        case .going, .notResponded: return 54
+        }
+    }
+
+    public func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat { 70 }
 }

@@ -101,6 +101,7 @@ import ChatMessageDateAndStatusNode
 import ReplyAccessoryPanelNode
 import TextSelectionNode
 import ChatMessagePollBubbleContentNode
+import ChatMessageEventBubbleContentNode
 import ChatMessageItem
 import ChatMessageItemImpl
 import ChatMessageItemView
@@ -145,6 +146,7 @@ import GlobalControlPanelsContext
 import ChatSearchNavigationContentNode
 import ChatAgeRestrictionAlertController
 import TextProcessingScreen
+import EventKit
 
 public final class ChatControllerOverlayPresentationData {
     public let expandData: (ASDisplayNode?, () -> Void)
@@ -6667,7 +6669,9 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
         let _ = ChatControllerCount.modify { value in
             return value - 1
         }
-        
+        if let token = self.eventVoteObserverToken { NotificationCenter.default.removeObserver(token) }
+        if let token = self.eventSavedObserverToken { NotificationCenter.default.removeObserver(token) }
+
         self.historyStateDisposable?.dispose()
         self.messageIndexDisposable.dispose()
         self.navigationActionDisposable.dispose()
@@ -7255,12 +7259,11 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
             }
             self.updateStatusBarPresentation()
         }
+        self.setupEventVoteObserver()
     }
     
     override public func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-
-        self.setupEventFloatingButtonIfNeeded()
 
         if self.willAppear {
             self.chatDisplayNode.historyNode.refreshPollActionsForVisibleMessages()
@@ -9569,6 +9572,58 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
         progress: Promise<Bool>? = nil,
         commit: @escaping () -> Void = {}
     ) {
+        if url.hasPrefix("tgevent://open/") {
+            let eventId = String(url.dropFirst("tgevent://open/".count))
+            if let peerId = self.chatLocation.peerId {
+                let nav = UINavigationController(rootViewController: EventCardNavigatorController(chatId: peerId.localStorageId, context: self.context, initialEventId: eventId.isEmpty ? nil : eventId))
+                nav.modalPresentationStyle = .pageSheet
+                if #available(iOS 15.0, *) {
+                    if let sheet = nav.sheetPresentationController {
+                        sheet.detents = [.large()]
+                        sheet.prefersGrabberVisible = true
+                        sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+                    }
+                }
+                self.present(nav, animated: true)
+            }
+            return
+        }
+
+        if url.hasPrefix("tgevent://edit/") {
+            // URL format: tgevent://edit/<eventId>/<messageLocalId>
+            let parts = String(url.dropFirst("tgevent://edit/".count)).components(separatedBy: "/")
+            let eventId = parts[0]
+            if let data = UserDefaults.standard.data(forKey: TGEventStorage.eventsKey),
+               let events = try? JSONDecoder().decode([TGEvent].self, from: data),
+               let event = events.first(where: { $0.id.uuidString == eventId }) {
+                let controller = CreateEventController(context: self.context, editingEvent: event)
+                // After saving, scan visible nodes and refresh the event bubble card immediately
+                controller.onSave = { [weak self] _ in
+                    self?.refreshVisibleEventBubble(eventId: eventId)
+                }
+                let nav = UINavigationController(rootViewController: controller)
+                nav.modalPresentationStyle = .pageSheet
+                if #available(iOS 15.0, *) {
+                    if let sheet = nav.sheetPresentationController {
+                        sheet.detents = [.large()]
+                        sheet.prefersGrabberVisible = true
+                    }
+                }
+                self.present(nav, animated: true)
+            }
+            return
+        }
+
+        if url.hasPrefix("tgevent://addcalendar/") {
+            let eventId = String(url.dropFirst("tgevent://addcalendar/".count))
+            if let data = UserDefaults.standard.data(forKey: TGEventStorage.eventsKey),
+               let events = try? JSONDecoder().decode([TGEvent].self, from: data),
+               let event = events.first(where: { $0.id.uuidString == eventId }) {
+                self.addEventToSystemCalendar(event)
+            }
+            return
+        }
+
         self.commitPurposefulAction()
         
         if allowInlineWebpageResolution, let message, let webpage = message.media.first(where: { $0 is TelegramMediaWebpage }) as? TelegramMediaWebpage, case let .Loaded(content) = webpage.content, content.url == url {
@@ -10701,6 +10756,8 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
     
     private var updateChatLocationThreadDisposable: Disposable?
     private(set) var isUpdatingChatLocationThread: Bool = false
+    private var eventVoteObserverToken: NSObjectProtocol?
+    private var eventSavedObserverToken: NSObjectProtocol?
     var currentChatSwitchDirection: ChatControllerAnimateInnerChatSwitchDirection?
     
     func updateChatLocationToOther(chatLocation: ChatLocation) {
@@ -10923,5 +10980,75 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
     
     public var contentContainerNode: ASDisplayNode {
         return self.chatDisplayNode.contentContainerNode
+    }
+
+    private func addEventToSystemCalendar(_ event: TGEvent) {
+        let confirmAlert = UIAlertController(title: "Добавить в Календарь", message: event.title, preferredStyle: .alert)
+        confirmAlert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        confirmAlert.addAction(UIAlertAction(title: "Добавить", style: .default) { [weak self] _ in
+            guard let self else { return }
+            let store = EKEventStore()
+            let doAdd: () -> Void = { [weak self, store] in
+                let ekEvent = EKEvent(eventStore: store)
+                ekEvent.title = event.title
+                ekEvent.startDate = event.startDate
+                ekEvent.endDate = event.endDate > event.startDate ? event.endDate : Calendar.current.date(byAdding: .hour, value: 1, to: event.startDate) ?? event.startDate
+                if let loc = event.location { ekEvent.location = loc }
+                if let desc = event.description { ekEvent.notes = desc }
+                ekEvent.calendar = store.defaultCalendarForNewEvents
+                try? store.save(ekEvent, span: .thisEvent, commit: true)
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    let doneAlert = UIAlertController(title: "Добавлено в Календарь", message: event.title, preferredStyle: .alert)
+                    doneAlert.addAction(UIAlertAction(title: "OK", style: .default))
+                    self.present(doneAlert, animated: true)
+                }
+            }
+            if #available(iOS 17.0, *) {
+                store.requestWriteOnlyAccessToEvents { granted, _ in if granted { doAdd() } }
+            } else {
+                store.requestAccess(to: .event) { granted, _ in if granted { doAdd() } }
+            }
+        })
+        self.present(confirmAlert, animated: true)
+    }
+}
+
+// MARK: - Event bubble refresh helpers
+
+extension ChatControllerImpl {
+    /// Scan visible chat nodes and force-refresh event bubbles matching the given eventId.
+    /// Uses actual message IDs from visible nodes to avoid namespace ambiguity.
+    func refreshVisibleEventBubble(eventId: String? = nil) {
+        self.chatDisplayNode.historyNode.forEachItemNode { node in
+            guard let itemNode = node as? ChatMessageBubbleItemNode else { return }
+            for contentNode in itemNode.contentNodes {
+                guard let eventNode = contentNode as? ChatMessageEventBubbleContentNode else { continue }
+                if eventId == nil || eventNode.currentEventId == eventId {
+                    // Immediate direct update (text content + node frames)
+                    eventNode.refreshFromUserDefaults()
+                    // Full async re-layout for height recalculation (bubble size changes)
+                    if let msgId = itemNode.item?.message.id {
+                        self.chatDisplayNode.historyNode.requestMessageUpdate(msgId)
+                    }
+                }
+            }
+        }
+    }
+
+    func setupEventVoteObserver() {
+        eventVoteObserverToken = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("tgEventVoteChanged"),
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.refreshVisibleEventBubble()
+        }
+        eventSavedObserverToken = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("tgEventSaved"),
+            object: nil, queue: .main
+        ) { [weak self] notification in
+            let eventId = notification.userInfo?["eventId"] as? String
+            self?.refreshVisibleEventBubble(eventId: eventId)
+        }
     }
 }

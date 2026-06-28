@@ -58,6 +58,7 @@ import ChatMessageInstantVideoBubbleContentNode
 import ChatMessageCommentFooterContentNode
 import ChatMessageActionBubbleContentNode
 import ChatMessageContactBubbleContentNode
+import ChatMessageEventBubbleContentNode
 import ChatMessageEventLogPreviousDescriptionContentNode
 import ChatMessageEventLogPreviousLinkContentNode
 import ChatMessageEventLogPreviousMessageContentNode
@@ -136,6 +137,12 @@ private func contentNodeMessagesAndClassesForItem(_ item: ChatMessageItem) -> ([
     var addedQuizAnswer = false
     
     outer: for (message, itemAttributes) in item.content {
+        let isEventMessage = message.attributes.contains(where: { $0 is TGEventAttribute })
+        if isEventMessage {
+            result.append((message, ChatMessageEventBubbleContentNode.self, itemAttributes, BubbleItemAttributes(isAttachment: false, neighborType: .text, neighborSpacing: .default)))
+            continue outer
+        }
+
         for attribute in message.attributes {
             if let attribute = attribute as? RestrictedContentMessageAttribute, attribute.platformText(platform: "ios", contentSettings: item.context.currentContentSettings.with { $0 }) != nil {
                 result.append((message, ChatMessageRestrictedBubbleContentNode.self, itemAttributes, BubbleItemAttributes(isAttachment: false, neighborType: .text, neighborSpacing: .default)))
@@ -468,6 +475,7 @@ private func contentNodeMessagesAndClassesForItem(_ item: ChatMessageItem) -> ([
             if result.last?.1 == ChatMessagePollBubbleContentNode.self ||
                result.last?.1 == ChatMessageTodoBubbleContentNode.self ||
                result.last?.1 == ChatMessageContactBubbleContentNode.self ||
+               result.last?.1 == ChatMessageEventBubbleContentNode.self ||
                result.last?.1 == ChatMessageGameBubbleContentNode.self ||
                result.last?.1 == ChatMessageInvoiceBubbleContentNode.self ||
                result.last?.1 == ChatMessageGiveawayBubbleContentNode.self {

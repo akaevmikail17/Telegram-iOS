@@ -39,10 +39,8 @@ import Photos
 import AttachmentFileController
 
 // Stable Int64 encoding of a peer ID for on-device event storage only.
-// Uses the same namespace|id packing as Postbox — not for network use.
-// Internal (not private) so ChatControllerEventButton in the same module can use it.
 extension PeerId {
-    var localStorageId: Int64 { id._internalGetInt64Value() }
+    var localStorageId: Int64 { toInt64() }
 }
 
 extension ChatControllerImpl {
@@ -781,6 +779,10 @@ extension ChatControllerImpl {
                     if isGroupChat {
                         eventController.onSave = { [weak strongSelf] event in
                             strongSelf?.sendEventToGroup(event: event)
+                        }
+                    } else {
+                        eventController.onSave = { [weak strongSelf] event in
+                            strongSelf?.sendEventToDM(event: event)
                         }
                     }
 
@@ -2322,12 +2324,52 @@ extension ChatControllerImpl {
 
     private static let eventDateFmt: DateFormatter = {
         let f = DateFormatter(); f.locale = Locale(identifier: "ru_RU")
-        f.dateFormat = "EEEE, d MMMM"; return f
+        f.dateFormat = "EEE, d MMMM"; return f
     }()
     private static let eventTimeFmt: DateFormatter = {
         let f = DateFormatter(); f.locale = Locale(identifier: "ru_RU")
         f.dateFormat = "HH:mm"; return f
     }()
+
+    func sendEventToDM(event: TGEvent) {
+        guard let peerId = chatLocation.peerId else { return }
+        let chatId = peerId.localStorageId
+
+        let dateFmt = Self.eventDateFmt
+        let timeFmt = Self.eventTimeFmt
+
+        var dateStr = dateFmt.string(from: event.startDate)
+        if let first = dateStr.first { dateStr = first.uppercased() + dateStr.dropFirst() }
+
+        var text = "📅 \(event.title)\n"
+        text += "🕒 \(dateStr) · \(timeFmt.string(from: event.startDate))"
+        if let loc = event.location, !loc.isEmpty { text += "\n📍 \(loc)" }
+
+        let eventAttr = TGEventAttribute(
+            eventId: event.id.uuidString, title: event.title,
+            startTimestamp: event.startDate.timeIntervalSince1970,
+            endTimestamp: event.endDate.timeIntervalSince1970,
+            location: event.location.flatMap { $0.isEmpty ? nil : $0 }
+        )
+
+        let message: EnqueueMessage = .message(
+            text: text, attributes: [eventAttr], inlineStickers: [:], mediaReference: nil,
+            threadId: chatLocation.threadId, replyToMessageId: nil, replyToStoryId: nil,
+            localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: []
+        )
+        sendMessages([message])
+
+        var eventWithChat = event
+        eventWithChat.chatId = chatId
+        eventWithChat.chatIsGroup = false
+        var stored = (try? JSONDecoder().decode([TGEvent].self,
+            from: UserDefaults.standard.data(forKey: TGEventStorage.eventsKey) ?? Data())) ?? []
+        stored = stored.map { $0.id == event.id ? eventWithChat : $0 }
+        if let data = try? JSONEncoder().encode(stored) {
+            UserDefaults.standard.set(data, forKey: TGEventStorage.eventsKey)
+        }
+
+    }
 
     func sendEventToGroup(event: TGEvent) {
         guard let peerId = chatLocation.peerId else { return }
@@ -2340,7 +2382,7 @@ extension ChatControllerImpl {
         if let first = dateStr.first { dateStr = first.uppercased() + dateStr.dropFirst() }
 
         var text = "📅 \(event.title)\n"
-        text += "🕒 \(dateStr) · \(timeFmt.string(from: event.startDate))–\(timeFmt.string(from: event.endDate))"
+        text += "🕒 \(dateStr) · \(timeFmt.string(from: event.startDate))"
         if let loc = event.location, !loc.isEmpty { text += "\n📍 \(loc)" }
 
         // TGEventAttribute stores event data invisibly so other fork devices can discover it.
@@ -2358,18 +2400,15 @@ extension ChatControllerImpl {
         )
         sendMessages([message])
 
-        // Persist event with the group chat identifier so the floating button can find it.
-        let eventWithChat = TGEvent(
-            id: event.id, title: event.title,
-            startDate: event.startDate, endDate: event.endDate,
-            participants: event.participants, location: event.location,
-            chatId: chatId, chatIsGroup: true
-        )
+        var eventWithChat = event
+        eventWithChat.chatId = chatId
+        eventWithChat.chatIsGroup = true
         var stored = (try? JSONDecoder().decode([TGEvent].self,
             from: UserDefaults.standard.data(forKey: TGEventStorage.eventsKey) ?? Data())) ?? []
         stored = stored.map { $0.id == event.id ? eventWithChat : $0 }
         if let data = try? JSONEncoder().encode(stored) {
             UserDefaults.standard.set(data, forKey: TGEventStorage.eventsKey)
         }
+
     }
 }
